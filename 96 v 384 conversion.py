@@ -24,11 +24,11 @@ def extract_sortable_rows(df):
     return valid_rows
 
 def inject_sorted_back(original_df, sorted_rows):
-    sorted_iter = iter(sorted_rows.itertuples(index=False))
+    sorted_iter = iter(sorted_rows.to_dict(orient='records'))
     result_rows = []
     for _, row in original_df.iterrows():
         if pd.notnull(row['Plate']) and pd.notnull(row['96 Well']) and pd.notnull(row['384 Well']):
-            result_rows.append(next(sorted_iter)._asdict())
+            result_rows.append(next(sorted_iter))
         else:
             result_rows.append(row.to_dict())
     return pd.DataFrame(result_rows)
