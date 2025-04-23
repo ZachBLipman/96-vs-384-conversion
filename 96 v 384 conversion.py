@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
+import re
 
 def compute_global_384_index(df):
     rows_384 = list("ABCDEFGHIJKLMNOP")
@@ -32,10 +33,20 @@ def inject_sorted_back(original_df, sorted_rows):
             result_rows.append(row.to_dict())
     return pd.DataFrame(result_rows)
 
+def sort_96_well_labels(well_label):
+    match = re.match(r"([A-H])([0-9]{1,2})", str(well_label))
+    if match:
+        row_letter = match.group(1)
+        col_number = int(match.group(2))
+        return (row_letter, col_number)
+    return ("Z", 99)  # Put unrecognized wells at the end
+
 def sort_by_toggle(df, view_mode):
     sortable = extract_sortable_rows(df)
     if view_mode == '96-well layout':
-        sorted_rows = sortable.sort_values(by=['Plate', '96 Well'])
+        sortable = sortable.assign(_96Key=sortable['96 Well'].apply(sort_96_well_labels))
+        sorted_rows = sortable.sort_values(by=['Plate', '_96Key'])
+        sorted_rows = sorted_rows.drop(columns=['_96Key'])
     elif view_mode == '384-well layout':
         sorted_rows = sortable.sort_values(by='Global_384_Position')
     else:
