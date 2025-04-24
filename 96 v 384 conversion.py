@@ -4,13 +4,17 @@ import numpy as np
 from io import BytesIO
 import re
 
+# ----------------------------
+# Plate utilities
+# ----------------------------
 def compute_global_384_index(df):
     rows_384 = list("ABCDEFGHIJKLMNOP")
     cols_384 = list(range(1, 25))
     well_384_positions = [f"{r}{c}" for r in rows_384 for c in cols_384]
-    well_384_index = {well: i+1 for i, well in enumerate(well_384_positions)}
+    well_384_index = {well: i + 1 for i, well in enumerate(well_384_positions)}
 
     df['Plate'] = pd.to_numeric(df['Plate'], errors='coerce')
+
     def get_index(row):
         plate_group = (row['Plate'] - 1) // 4 if pd.notnull(row['Plate']) else None
         local_index = well_384_index.get(row['384 Well'], None)
@@ -39,7 +43,7 @@ def sort_96_well_labels(well_label):
         row_letter = match.group(1)
         col_number = int(match.group(2))
         return (row_letter, col_number)
-    return ("Z", 99)  # Put unrecognized wells at the end
+    return ("Z", 99)  # Push unrecognized to the end
 
 def sort_by_toggle(df, view_mode):
     sortable = extract_sortable_rows(df)
@@ -59,19 +63,57 @@ def download_link(df, filename):
     towrite.seek(0)
     return towrite
 
-st.title("🧪 Plate Layout Toggler: 96-Well ⇄ 384-Well")
+# ----------------------------
+# Header detection
+# ----------------------------
+REQUIRED_COLUMNS = {'96 Well', '384 Well', 'Plate'}
 
-uploaded_file = st.file_uploader("Upload your Excel file", type=['xlsx', 'csv'])
+def find_header_row(df, required_columns):
+    for i in range(min(20, len(df))):
+        row = df.iloc[i]
+        if required_columns.issubset(set(row.values)):
+            return i
+    return None
+
+# ----------------------------
+# Streamlit UI
+# ----------------------------
+st.title("Plate Layout Toggler: 96-Well ⇄ 384-Well")
+
+uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
+    st.write("📄 Preview of first 20 rows:")
     if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+        preview_df = pd.read_csv(uploaded_file, header=None)
     else:
-        df = pd.read_excel(uploaded_file)
+        preview_df = pd.read_excel(uploaded_file, header=None)
 
-    if {'96 Well', '384 Well', 'Plate'}.issubset(df.columns):
+    st.dataframe(preview_df.head(20))
+
+    auto_header_row = find_header_row(preview_df, REQUIRED_COLUMNS)
+    st.markdown("### 🔍 Header Row Detection")
+    if auto_header_row is not None:
+        st.success(f"Automatically detected header row at index {auto_header_row}")
+    else:
+        st.warning("No header row detected automatically.")
+
+    selected_row = st.number_input(
+        "Select the row number to use as header:",
+        min_value=0,
+        max_value=min(50, len(preview_df) - 1),
+        value=auto_header_row if auto_header_row is not None else 0,
+        step=1
+    )
+
+    # Load full data using selected header
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file, header=selected_row)
+    else:
+        df = pd.read_excel(uploaded_file, header=selected_row)
+
+    if REQUIRED_COLUMNS.issubset(df.columns):
         df = compute_global_384_index(df)
-
         view_mode = st.radio("Toggle view mode:", ["96-well layout", "384-well layout"])
         sorted_df = sort_by_toggle(df, view_mode)
 
@@ -79,6 +121,6 @@ if uploaded_file is not None:
         st.dataframe(sorted_df.reset_index(drop=True))
 
         output = download_link(sorted_df, "sorted_plate_layout.xlsx")
-        st.download_button("🗂️ Download Sorted File", data=output, file_name="sorted_plate_layout.xlsx")
+        st.download_button("Download Sorted File", data=output, file_name="sorted_plate_layout.xlsx")
     else:
-        st.error("The file must include columns: '96 Well', '384 Well', and 'Plate'")
+        st.error(f"The selected row does not contain all required columns: {REQUIRED_COLUMNS}")
